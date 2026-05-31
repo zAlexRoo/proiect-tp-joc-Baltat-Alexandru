@@ -2,37 +2,66 @@
 #include <stdio.h>
 #include <string.h>
 
-void init_board(char b[3][3]) {
-    memset(b, '.', sizeof(char) * 9);
+void init_board(char b[6][6], int sz) {
+    for (int i = 0; i < sz; i++)
+        for (int j = 0; j < sz; j++)
+            b[i][j] = '.';
 }
 
-void print_board(char b[3][3]) {
-    puts("\n  0 1 2");
-    for (int r = 0; r < 3; r++)
-        printf("%d %c %c %c\n", r, b[r][0], b[r][1], b[r][2]);
+void print_board(char b[6][6], int sz) {
+    printf("\n  ");
+    for (int i = 0; i < sz; i++) printf("%d ", i);
+    puts("");
+    for (int r = 0; r < sz; r++) {
+        printf("%d ", r);
+        for (int c = 0; c < sz; c++) {
+            printf("%c ", b[r][c]);
+        }
+        putchar('\n');
+    }
     putchar('\n');
 }
 
-int place(char b[3][3], int r, int c, char p) {
-    if (r < 0 || r > 2 || c < 0 || c > 2) return 0;
+int place(char b[6][6], int sz, int r, int c, char p) {
+    if (r < 0 || r >= sz || c < 0 || c >= sz) return 0;
     if (b[r][c] != '.') return 0;
     b[r][c] = p;
     return 1;
 }
 
-int check_win(char b[3][3], char p) {
-    for (int i = 0; i < 3; i++) {
-        if (b[i][0]==p && b[i][1]==p && b[i][2]==p) return 1;
-        if (b[0][i]==p && b[1][i]==p && b[2][i]==p) return 1;
+int check_win(char b[6][6], int sz, char p) {
+    for (int r = 0; r < sz; r++) {
+        int win = 1;
+        for (int c = 0; c < sz; c++) {
+            if (b[r][c] != p) { win = 0; break; }
+        }
+        if (win) return 1;
     }
-    if (b[0][0]==p && b[1][1]==p && b[2][2]==p) return 1;
-    if (b[0][2]==p && b[1][1]==p && b[2][0]==p) return 1;
+    for (int c = 0; c < sz; c++) {
+        int win = 1;
+        for (int r = 0; r < sz; r++) {
+            if (b[r][c] != p) { win = 0; break; }
+        }
+        if (win) return 1;
+    }
+    int win_diag1 = 1;
+    for (int i = 0; i < sz; i++) {
+        if (b[i][i] != p) { win_diag1 = 0; break; }
+    }
+    if (win_diag1) return 1;
+
+    int win_diag2 = 1;
+    for (int i = 0; i < sz; i++) {
+        if (b[i][sz - 1 - i] != p) { win_diag2 = 0; break; }
+    }
+    if (win_diag2) return 1;
+
     return 0;
 }
 
-int is_draw(char b[3][3]) {
-    for (int i = 0; i < 3; i++)
-        for (int j = 0; j < 3; j++)
+int is_draw(char b[6][6], int sz) {
+    for (int i = 0; i < sz; i++)
+        for (int j = 0; j < sz; j++)
             if (b[i][j] == '.') return 0;
     return 1;
 }

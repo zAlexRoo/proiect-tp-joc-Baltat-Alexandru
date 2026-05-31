@@ -3,15 +3,18 @@
 #include "ai.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <time.h>
+#include <math.h>
 
 #define SCREEN_W   600
-#define SCREEN_H   700
-#define CELL_SIZE  160
+#define SCREEN_H   750
+#define GRID_SIZE_MAX 480
 #define GRID_OFF_X  60
 #define GRID_OFF_Y 120
 #define LINE_THICK   6
 
-typedef enum { MENU, PLAYING, GAME_OVER } GameState;
+typedef enum { MENU, MODE_MENU, AI_MENU, GRID_MENU, PLAYING, GAME_OVER } GameState;
 typedef enum { PVP, VS_AI } GameMode;
 
 static Color BG        = { 15,  15,  20, 255 };
@@ -24,67 +27,120 @@ static Color BTN_HOV   = { 50,  50,  75, 255 };
 static Color TEXT_COL  = {230, 230, 240, 255 };
 static Color DIM_COL   = { 90,  90, 110, 255 };
 
-typedef struct { int r, c; } Cell;
-
-char     board[3][3];
+char     board[6][6];
+int      grid_size = 3;   
+int      cell_size = 160; 
 char     current;
 GameState state;
 GameMode  mode;
+int      ai_difficulty;   /* 0 = Easy, 1 = Medium, 2 = Hard */
 int      winner;          /* 0=none, 1=X, 2=O, 3=draw */
-Cell     win_line[3];
+
+/* --- VARIABILE PENTRU MODUL INFINIT --- */
+bool     is_infinite = false;
+int      move_history_r[2][6]; /* Coordonatele pieselor: rânduri [0=X, 1=O] */
+int      move_history_c[2][6]; /* Coordonatele pieselor: coloane [0=X, 1=O] */
+int      move_count[2];        /* Numărul curent de piese puse pe tablă de fiecare jucător */
+
+typedef struct { int r1, c1, r2, c2; } WinLineCoords;
+WinLineCoords wl;
+
 int      score_x, score_o, score_draw;
-float    cell_anim[3][3]; /* 0..1 scale animation */
-float    win_anim;        /* 0..1 for win line */
+float    cell_anim[6][6]; 
+float    win_anim;        
 bool     ai_thinking;
 float    ai_timer;
 
 void reset_board(void) {
-    init_board(board);
+    init_board(board, grid_size);
+    cell_size = GRID_SIZE_MAX / grid_size;
     current  = 'X';
     winner   = 0;
     state    = PLAYING;
     ai_thinking = false;
     ai_timer    = 0;
     win_anim    = 0;
+    
+    /* Resetează istoricul deplasărilor pentru modul Infinit */
+    move_count[0] = 0;
+    move_count[1] = 0;
+    memset(move_history_r, 0, sizeof(move_history_r));
+    memset(move_history_c, 0, sizeof(move_history_c));
     memset(cell_anim, 0, sizeof(cell_anim));
 }
 
-void find_win_line(char p) {
-    int lines[8][3][2] = {
-        {{0,0},{0,1},{0,2}}, {{1,0},{1,1},{1,2}}, {{2,0},{2,1},{2,2}},
-        {{0,0},{1,0},{2,0}}, {{0,1},{1,1},{2,1}}, {{0,2},{1,2},{2,2}},
-        {{0,0},{1,1},{2,2}}, {{0,2},{1,1},{2,0}}
-    };
-    for (int i = 0; i < 8; i++) {
-        if (board[lines[i][0][0]][lines[i][0][1]] == p &&
-            board[lines[i][1][0]][lines[i][1][1]] == p &&
-            board[lines[i][2][0]][lines[i][2][1]] == p) {
-            for (int j = 0; j < 3; j++) {
-                win_line[j].r = lines[i][j][0];
-                win_line[j].c = lines[i][j][1];
-            }
-            return;
+void execute_move(int r, int c, char p) {
+    int p_idx = (p == 'X') ? 0 : 1;
+
+    /* Dacă este Modul Infinit și s-a atins limita maximă de piese (egală cu dimensiunea gridului) */
+    if (is_infinite && move_count[p_idx] == grid_size) {
+        // Obținem coordonatele celei mai vechi piese
+        int old_r = move_history_r[p_idx][0];
+        int old_c = move_history_c[p_idx][0];
+        
+        // O ștergem de pe tablă
+        board[old_r][old_c] = '.';
+        cell_anim[old_r][old_c] = 0.0f;
+
+        // Shiftăm istoricul la stânga pentru a elibera ultimul loc
+        for (int i = 0; i < move_count[p_idx] - 1; i++) {
+            move_history_r[p_idx][i] = move_history_r[p_idx][i + 1];
+            move_history_c[p_idx][i] = move_history_c[p_idx][i + 1];
         }
+        move_count[p_idx]--;
+    }
+
+    // Plasăm piesa nouă
+    board[r][c] = p;
+    cell_anim[r][c] = 0.01f;
+
+    // Salvăm piesa nouă în istoric
+    if (is_infinite) {
+        move_history_r[p_idx][move_count[p_idx]] = r;
+        move_history_c[p_idx][move_count[p_idx]] = c;
+        move_count[p_idx]++;
     }
 }
 
+void find_win_line_coords(char p) {
+    for (int r = 0; r < grid_size; r++) {
+        int win = 1;
+        for (int c = 0; c < grid_size; c++) if (board[r][c] != p) { win = 0; break; }
+        if (win) { wl = (WinLineCoords){r, 0, r, grid_size-1}; return; }
+    }
+    for (int c = 0; c < grid_size; c++) {
+        int win = 1;
+        for (int r = 0; r < grid_size; r++) if (board[r][c] != p) { win = 0; break; }
+        if (win) { wl = (WinLineCoords){0, c, grid_size-1, c}; return; }
+    }
+    int win_d1 = 1;
+    for (int i = 0; i < grid_size; i++) if (board[i][i] != p) { win_d1 = 0; break; }
+    if (win_d1) { wl = (WinLineCoords){0, 0, grid_size-1, grid_size-1}; return; }
+
+    int win_d2 = 1;
+    for (int i = 0; i < grid_size; i++) if (board[i][grid_size-1-i] != p) { win_d2 = 0; break; }
+    if (win_d2) { wl = (WinLineCoords){0, grid_size-1, grid_size-1, 0}; return; }
+}
+
 void draw_x(int cx, int cy, float scale, Color col) {
-    float s = CELL_SIZE * 0.28f * scale;
-    float t = LINE_THICK * 1.4f;
+    float s = cell_size * 0.28f * scale;
+    float t = LINE_THICK * (160.0f / cell_size) * 0.8f;
+    if (t < 3) t = 3;
     DrawLineEx((Vector2){cx-s, cy-s}, (Vector2){cx+s, cy+s}, t, col);
     DrawLineEx((Vector2){cx+s, cy-s}, (Vector2){cx-s, cy+s}, t, col);
 }
 
 void draw_o(int cx, int cy, float scale, Color col) {
-    float r = CELL_SIZE * 0.26f * scale;
-    DrawRing((Vector2){cx, cy}, r - LINE_THICK*0.7f, r + LINE_THICK*0.7f,
-             0, 360, 32, col);
+    float r = cell_size * 0.26f * scale;
+    float t = LINE_THICK * (160.0f / cell_size) * 0.6f;
+    if (t < 3) t = 3;
+    DrawRing((Vector2){cx, cy}, r - t, r + t, 0, 360, 32, col);
 }
 
-bool draw_button(Rectangle rec, const char *label, int font_size) {
+bool draw_button(Rectangle rec, const char *label, int font_size, Color hover_col) {
     bool hover = CheckCollisionPointRec(GetMousePosition(), rec);
-    DrawRectangleRounded(rec, 0.2f, 8, hover ? BTN_HOV : BTN_COL);
-    DrawRectangleRoundedLinesEx(rec, 0.2f, 8, 1.5f, hover ? O_COL : LINE_COL);
+    DrawRectangleRounded(rec, 0.2f, 8, hover ? hover_col : BTN_COL);
+    DrawRectangleRoundedLinesEx(rec, 0.2f, 8, 1.5f, hover ? hover_col : LINE_COL);
     int tw = MeasureText(label, font_size);
     DrawText(label, rec.x + (rec.width - tw)/2, rec.y + (rec.height - font_size)/2,
              font_size, hover ? TEXT_COL : DIM_COL);
@@ -92,6 +148,7 @@ bool draw_button(Rectangle rec, const char *label, int font_size) {
 }
 
 int main(void) {
+    srand(time(NULL));
     InitWindow(SCREEN_W, SCREEN_H, "Tic-Tac-Toe");
     SetTargetFPS(60);
 
@@ -101,26 +158,74 @@ int main(void) {
     while (!WindowShouldClose()) {
         float dt = GetFrameTime();
 
+        /* Animatii */
+        for (int r = 0; r < grid_size; r++) {
+            for (int c = 0; c < grid_size; c++) {
+                if (board[r][c] != '.' && cell_anim[r][c] < 1.0f) {
+                    cell_anim[r][c] += dt * 6.0f;
+                    if (cell_anim[r][c] > 1.0f) cell_anim[r][c] = 1.0f;
+                }
+            }
+        }
+
         /* --- UPDATE --- */
         if (state == MENU) {
-            Rectangle btn_pvp = { SCREEN_W/2 - 130, 280, 260, 56 };
-            Rectangle btn_ai  = { SCREEN_W/2 - 130, 360, 260, 56 };
-            if (draw_button(btn_pvp, "JUCATOR vs JUCATOR", 18)) {
-                mode = PVP; reset_board();
+            Rectangle btn_classic  = { SCREEN_W/2 - 130, 280, 260, 56 };
+            Rectangle btn_infinite = { SCREEN_W/2 - 130, 360, 260, 56 };
+            if (draw_button(btn_classic, "MOD CLASIC", 18, BTN_HOV)) {
+                is_infinite = false; state = MODE_MENU;
             }
-            if (draw_button(btn_ai, "JUCATOR vs AI", 18)) {
-                mode = VS_AI; reset_board();
+            if (draw_button(btn_infinite, "INFINITE MODE", 18, (Color){ 99, 102, 241, 255 })) {
+                is_infinite = true; state = MODE_MENU;
             }
-        } else if (state == PLAYING) {
-            /* animate pieces */
-            for (int r = 0; r < 3; r++)
-                for (int c = 0; c < 3; c++)
-                    if (board[r][c] != '.' && cell_anim[r][c] < 1.0f) {
-                        cell_anim[r][c] += dt * 6.0f;
-                        if (cell_anim[r][c] > 1.0f) cell_anim[r][c] = 1.0f;
-                    }
+        } else if (state == MODE_MENU) {
+            Rectangle btn_pvp  = { SCREEN_W/2 - 130, 280, 260, 56 };
+            Rectangle btn_ai   = { SCREEN_W/2 - 130, 360, 260, 56 };
+            Rectangle btn_back = { SCREEN_W/2 - 130, 450, 260, 44 };
+            if (draw_button(btn_pvp, "JUCATOR vs JUCATOR", 18, BTN_HOV)) {
+                mode = PVP; state = GRID_MENU;
+            }
+            if (draw_button(btn_ai, "JUCATOR vs AI", 18, BTN_HOV)) {
+                mode = VS_AI; state = AI_MENU;
+            }
+            if (draw_button(btn_back, "INAPOI", 16, BTN_HOV)) state = MENU;
 
-            /* AI move */
+        } else if (state == AI_MENU) {
+            Rectangle btn_easy = { SCREEN_W/2 - 130, 260, 260, 56 };
+            Rectangle btn_med  = { SCREEN_W/2 - 130, 340, 260, 56 };
+            Rectangle btn_hard = { SCREEN_W/2 - 130, 420, 260, 56 };
+            Rectangle btn_back = { SCREEN_W/2 - 130, 510, 260, 44 };
+
+            if (draw_button(btn_easy, "EASY", 18, (Color){ 46, 184, 114, 255 })) {
+                ai_difficulty = 0; state = GRID_MENU;
+            }
+            if (draw_button(btn_med, "MEDIUM", 18, (Color){ 234, 179, 8, 255 })) {
+                ai_difficulty = 1; state = GRID_MENU;
+            }
+            if (draw_button(btn_hard, "HARD", 18, (Color){ 239, 68, 68, 255 })) {
+                ai_difficulty = 2; state = GRID_MENU;
+            }
+            if (draw_button(btn_back, "INAPOI", 16, BTN_HOV)) state = MODE_MENU;
+
+        } else if (state == GRID_MENU) {
+            Rectangle b3 = { SCREEN_W/2 - 130, 240, 260, 50 };
+            Rectangle b4 = { SCREEN_W/2 - 130, 310, 260, 50 };
+            Rectangle b5 = { SCREEN_W/2 - 130, 380, 260, 50 };
+            Rectangle b6 = { SCREEN_W/2 - 130, 450, 260, 50 };
+            Rectangle btn_back = { SCREEN_W/2 - 130, 530, 260, 44 };
+
+            Color hgc = { 99, 102, 241, 255 };
+
+            if (draw_button(b3, "TABLA 3 x 3", 18, hgc)) { grid_size = 3; reset_board(); }
+            if (draw_button(b4, "TABLA 4 x 4", 18, hgc)) { grid_size = 4; reset_board(); }
+            if (draw_button(b5, "TABLA 5 x 5", 18, hgc)) { grid_size = 5; reset_board(); }
+            if (draw_button(b6, "TABLA 6 x 6", 18, hgc)) { grid_size = 6; reset_board(); }
+            if (draw_button(btn_back, "INAPOI", 16, BTN_HOV)) {
+                state = (mode == VS_AI) ? AI_MENU : MODE_MENU;
+            }
+
+        } else if (state == PLAYING) {
+            /* AI Turn */
             if (mode == VS_AI && current == 'O' && !ai_thinking) {
                 ai_thinking = true;
                 ai_timer    = 0.4f;
@@ -128,43 +233,42 @@ int main(void) {
             if (ai_thinking) {
                 ai_timer -= dt;
                 if (ai_timer <= 0) {
-                    ai_move(board, 'O');
+                    Cell ai_choice = ai_move(board, grid_size, 'O', ai_difficulty, is_infinite);
                     ai_thinking = false;
-                    /* find which cell changed */
-                    for (int r = 0; r < 3; r++)
-                        for (int c = 0; c < 3; c++)
-                            if (board[r][c] == 'O' && cell_anim[r][c] == 0)
-                                cell_anim[r][c] = 0.01f;
+                    
+                    if (ai_choice.r != -1 && ai_choice.c != -1) {
+                        execute_move(ai_choice.r, ai_choice.c, 'O');
 
-                    if (check_win(board, 'O')) {
-                        find_win_line('O'); winner = 2; state = GAME_OVER; score_o++;
-                    } else if (is_draw(board)) {
-                        winner = 3; state = GAME_OVER; score_draw++;
-                    } else {
-                        current = 'X';
+                        if (check_win(board, grid_size, 'O')) {
+                            find_win_line_coords('O'); winner = 2; state = GAME_OVER; score_o++;
+                        } else if (is_draw(board, grid_size)) {
+                            winner = 3; state = GAME_OVER; score_draw++;
+                        } else {
+                            current = 'X';
+                        }
                     }
                 }
             }
 
-            /* Mouse click */
+            /* Click Jucator */
             if (!ai_thinking && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
                 Vector2 mp = GetMousePosition();
-                for (int r = 0; r < 3; r++) {
-                    for (int c = 0; c < 3; c++) {
+                for (int r = 0; r < grid_size; r++) {
+                    for (int c = 0; c < grid_size; c++) {
                         Rectangle cell = {
-                            GRID_OFF_X + c * CELL_SIZE,
-                            GRID_OFF_Y + r * CELL_SIZE,
-                            CELL_SIZE, CELL_SIZE
+                            GRID_OFF_X + c * cell_size,
+                            GRID_OFF_Y + r * cell_size,
+                            cell_size, cell_size
                         };
                         if (CheckCollisionPointRec(mp, cell) && board[r][c] == '.') {
-                            place(board, r, c, current);
-                            cell_anim[r][c] = 0.01f;
-                            if (check_win(board, current)) {
-                                find_win_line(current);
+                            execute_move(r, c, current);
+
+                            if (check_win(board, grid_size, current)) {
+                                find_win_line_coords(current);
                                 winner = (current == 'X') ? 1 : 2;
                                 state  = GAME_OVER;
                                 if (current == 'X') score_x++; else score_o++;
-                            } else if (is_draw(board)) {
+                            } else if (is_draw(board, grid_size)) {
                                 winner = 3; state = GAME_OVER; score_draw++;
                             } else {
                                 current = (current == 'X') ? 'O' : 'X';
@@ -193,12 +297,52 @@ int main(void) {
             int sw = MeasureText(sub, 18);
             DrawText(sub, SCREEN_W/2 - sw/2, 210, 18, DIM_COL);
 
-            Rectangle btn_pvp = { SCREEN_W/2 - 130, 280, 260, 56 };
-            Rectangle btn_ai  = { SCREEN_W/2 - 130, 360, 260, 56 };
-            draw_button(btn_pvp, "JUCATOR vs JUCATOR", 18);
-            draw_button(btn_ai,  "JUCATOR vs AI",      18);
+            Rectangle btn_classic  = { SCREEN_W/2 - 130, 280, 260, 56 };
+            Rectangle btn_infinite = { SCREEN_W/2 - 130, 360, 260, 56 };
+            draw_button(btn_classic,  "MOD CLASIC", 18, BTN_HOV);
+            draw_button(btn_infinite, "INFINITE MODE", 18, (Color){ 99, 102, 241, 255 });
+        } else if (state == MODE_MENU) {
+            const char *title = is_infinite ? "INFINITE MODE" : "MOD CLASIC";
+            int tw = MeasureText(title, 46);
+            DrawText(title, SCREEN_W/2 - tw/2, 120, 46, is_infinite ? (Color){ 99, 102, 241, 255 } : TEXT_COL);
+
+            Rectangle btn_pvp  = { SCREEN_W/2 - 130, 280, 260, 56 };
+            Rectangle btn_ai   = { SCREEN_W/2 - 130, 360, 260, 56 };
+            Rectangle btn_back = { SCREEN_W/2 - 130, 450, 260, 44 };
+            draw_button(btn_pvp,  "JUCATOR vs JUCATOR", 18, BTN_HOV);
+            draw_button(btn_ai,   "JUCATOR vs AI",      18, BTN_HOV);
+            draw_button(btn_back, "INAPOI", 16, BTN_HOV);
+        } else if (state == AI_MENU) {
+            const char *title = "DIFICULTATE AI";
+            int tw = MeasureText(title, 46);
+            DrawText(title, SCREEN_W/2 - tw/2, 120, 46, TEXT_COL);
+
+            Rectangle btn_easy = { SCREEN_W/2 - 130, 260, 260, 56 };
+            Rectangle btn_med  = { SCREEN_W/2 - 130, 340, 260, 56 };
+            Rectangle btn_hard = { SCREEN_W/2 - 130, 420, 260, 56 };
+            Rectangle btn_back = { SCREEN_W/2 - 130, 510, 260, 44 };
+            draw_button(btn_easy, "EASY", 18, (Color){ 46, 184, 114, 255 });
+            draw_button(btn_med, "MEDIUM", 18, (Color){ 234, 179, 8, 255 });
+            draw_button(btn_hard, "HARD", 18, (Color){ 239, 68, 68, 255 });
+            draw_button(btn_back, "INAPOI", 16, BTN_HOV);
+        } else if (state == GRID_MENU) {
+            const char *title = "DIMENSIUNE TABLA";
+            int tw = MeasureText(title, 42);
+            DrawText(title, SCREEN_W/2 - tw/2, 120, 42, TEXT_COL);
+
+            Rectangle b3 = { SCREEN_W/2 - 130, 240, 260, 50 };
+            Rectangle b4 = { SCREEN_W/2 - 130, 310, 260, 50 };
+            Rectangle b5 = { SCREEN_W/2 - 130, 380, 260, 50 };
+            Rectangle b6 = { SCREEN_W/2 - 130, 450, 260, 50 };
+            Rectangle btn_back = { SCREEN_W/2 - 130, 530, 260, 44 };
+            Color hgc = { 99, 102, 241, 255 };
+            draw_button(b3, "TABLA 3 x 3", 18, hgc);
+            draw_button(b4, "TABLA 4 x 4", 18, hgc);
+            draw_button(b5, "TABLA 5 x 5", 18, hgc);
+            draw_button(b6, "TABLA 6 x 6", 18, hgc);
+            draw_button(btn_back, "INAPOI", 16, BTN_HOV);
         } else {
-            /* Score bar */
+            /* Barele de scor */
             char sx[16], so[16], sd[16];
             sprintf(sx, "%d", score_x);
             sprintf(so, "%d", score_o);
@@ -211,7 +355,7 @@ int main(void) {
             DrawText(so, SCREEN_W - 130, 22, 22, TEXT_COL);
             DrawText("O",  SCREEN_W - 105, 20, 28, O_COL);
 
-            /* Status */
+            /* Text status */
             const char *status;
             if (state == PLAYING) {
                 if (ai_thinking)           status = "AI se gandeste...";
@@ -226,48 +370,64 @@ int main(void) {
             DrawText(status, SCREEN_W/2 - stw/2, 68, 22,
                      winner == 1 ? X_COL : winner == 2 ? O_COL : TEXT_COL);
 
-            /* Grid lines */
-            for (int i = 1; i < 3; i++) {
+            /* Linii Grid */
+            for (int i = 1; i < grid_size; i++) {
                 DrawLineEx(
-                    (Vector2){GRID_OFF_X + i*CELL_SIZE, GRID_OFF_Y},
-                    (Vector2){GRID_OFF_X + i*CELL_SIZE, GRID_OFF_Y + 3*CELL_SIZE},
+                    (Vector2){GRID_OFF_X + i * cell_size, GRID_OFF_Y},
+                    (Vector2){GRID_OFF_X + i * cell_size, GRID_OFF_Y + GRID_SIZE_MAX},
                     LINE_THICK, LINE_COL);
                 DrawLineEx(
-                    (Vector2){GRID_OFF_X, GRID_OFF_Y + i*CELL_SIZE},
-                    (Vector2){GRID_OFF_X + 3*CELL_SIZE, GRID_OFF_Y + i*CELL_SIZE},
+                    (Vector2){GRID_OFF_X, GRID_OFF_Y + i * cell_size},
+                    (Vector2){GRID_OFF_X + GRID_SIZE_MAX, GRID_OFF_Y + i * cell_size},
                     LINE_THICK, LINE_COL);
             }
 
-            /* Pieces */
-            for (int r = 0; r < 3; r++) {
-                for (int c = 0; c < 3; c++) {
-                    int cx = GRID_OFF_X + c*CELL_SIZE + CELL_SIZE/2;
-                    int cy = GRID_OFF_Y + r*CELL_SIZE + CELL_SIZE/2;
-                    float sc = cell_anim[r][c];
-                    /* bounce easing */
-                    float es = sc < 0.5f ? 2*sc*sc : 1 - (-2*sc+2)*(-2*sc+2)/2;
+            /* Afisare piese X si O */
+            for (int r = 0; r < grid_size; r++) {
+                for (int c = 0; c < grid_size; c++) {
+                    if (board[r][c] != '.') {
+                        int cx = GRID_OFF_X + c * cell_size + cell_size / 2;
+                        int cy = GRID_OFF_Y + r * cell_size + cell_size / 2;
+                        float sc = cell_anim[r][c];
+                        float es = sc < 0.5f ? 2*sc*sc : 1 - (-2*sc+2)*(-2*sc+2)/2;
 
-                    if (board[r][c] == 'X') draw_x(cx, cy, es, X_COL);
-                    else if (board[r][c] == 'O') draw_o(cx, cy, es, O_COL);
+                        Color piece_color = (board[r][c] == 'X') ? X_COL : O_COL;
+
+                        /* MECANICA SPECIALA: Daca piesa este prima din istoric, pulseaza/clipeste */
+                        if (is_infinite && state == PLAYING) {
+                            int p_idx = (board[r][c] == 'X') ? 0 : 1;
+                            if (move_count[p_idx] == grid_size && 
+                                move_history_r[p_idx][0] == r && 
+                                move_history_c[p_idx][0] == c) {
+                                
+                                // Modificam valoarea Alpha (transparenta) cu o functie de timp sinf() pentru efect lin de fade
+                                float alpha = 0.25f + 0.45f * fabsf(sinf(GetTime() * 6.0f));
+                                piece_color.a = (unsigned char)(alpha * 255);
+                            }
+                        }
+
+                        if (board[r][c] == 'X') draw_x(cx, cy, es, piece_color);
+                        else if (board[r][c] == 'O') draw_o(cx, cy, es, piece_color);
+                    }
                 }
             }
 
-            /* Win line */
+            /* Linie Victorie */
             if (state == GAME_OVER && winner != 3) {
-                int ax = GRID_OFF_X + win_line[0].c*CELL_SIZE + CELL_SIZE/2;
-                int ay = GRID_OFF_Y + win_line[0].r*CELL_SIZE + CELL_SIZE/2;
-                int bx = GRID_OFF_X + win_line[2].c*CELL_SIZE + CELL_SIZE/2;
-                int by = GRID_OFF_Y + win_line[2].r*CELL_SIZE + CELL_SIZE/2;
-                int mx = ax + (int)((bx-ax) * win_anim);
-                int my = ay + (int)((by-ay) * win_anim);
-                DrawLineEx((Vector2){ax,ay}, (Vector2){mx,my}, LINE_THICK+2, WIN_COL);
+                int ax = GRID_OFF_X + wl.c1 * cell_size + cell_size / 2;
+                int ay = GRID_OFF_Y + wl.r1 * cell_size + cell_size / 2;
+                int bx = GRID_OFF_X + wl.c2 * cell_size + cell_size / 2;
+                int by = GRID_OFF_Y + wl.r2 * cell_size + cell_size / 2;
+                int mx = ax + (int)((bx - ax) * win_anim);
+                int my = ay + (int)((by - ay) * win_anim);
+                DrawLineEx((Vector2){ax, ay}, (Vector2){mx, my}, LINE_THICK + 2, WIN_COL);
             }
 
-            /* Buttons */
-            Rectangle btn_new  = { 60,  620, 180, 48 };
-            Rectangle btn_menu = { 360, 620, 180, 48 };
-            if (draw_button(btn_new,  "JOC NOU",  17)) reset_board();
-            if (draw_button(btn_menu, "MENIU",    17)) { state = MENU; }
+            /* Butoane Meniu In-Game */
+            Rectangle btn_new  = { 60,  660, 180, 48 };
+            Rectangle btn_menu = { 360, 660, 180, 48 };
+            if (draw_button(btn_new,  "JOC NOU",  17, BTN_HOV)) reset_board();
+            if (draw_button(btn_menu, "MENIU",    17, BTN_HOV)) state = MENU;
         }
 
         EndDrawing();

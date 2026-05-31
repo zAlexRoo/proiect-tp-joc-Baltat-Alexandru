@@ -1,10 +1,13 @@
 #ifndef BOARD_H
 #define BOARD_H
 
-void init_board(char b[3][3]);
-void print_board(char b[3][3]);
-int  place(char b[3][3], int row, int col, char player);
-int  check_win(char b[3][3], char player);
-int  is_draw(char b[3][3]);
+/* Structura Cell mutata aici pentru a fi accesibila global de catre main si ai */
+typedef struct { int r, c; } Cell;
+
+void init_board(char b[6][6], int sz);
+void print_board(char b[6][6], int sz);
+int  place(char b[6][6], int sz, int row, int col, char player);
+int  check_win(char b[6][6], int sz, char player);
+int  is_draw(char b[6][6], int sz);
 
 #endif
