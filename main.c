@@ -36,11 +36,16 @@ GameMode  mode;
 int      ai_difficulty;   /* 0 = Easy, 1 = Medium, 2 = Hard */
 int      winner;          /* 0=none, 1=X, 2=O, 3=draw */
 
+/* --- VARIABILE AUDIO --- */
+Sound    fx_click;
+Sound    fx_win;
+Sound    fx_lose;
+
 /* --- VARIABILE PENTRU MODUL INFINIT --- */
 bool     is_infinite = false;
-int      move_history_r[2][6]; /* Coordonatele pieselor: rânduri [0=X, 1=O] */
-int      move_history_c[2][6]; /* Coordonatele pieselor: coloane [0=X, 1=O] */
-int      move_count[2];        /* Numărul curent de piese puse pe tablă de fiecare jucător */
+int      move_history_r[2][6]; 
+int      move_history_c[2][6]; 
+int      move_count[2];        
 
 typedef struct { int r1, c1, r2, c2; } WinLineCoords;
 WinLineCoords wl;
@@ -61,7 +66,6 @@ void reset_board(void) {
     ai_timer    = 0;
     win_anim    = 0;
     
-    /* Resetează istoricul deplasărilor pentru modul Infinit */
     move_count[0] = 0;
     move_count[1] = 0;
     memset(move_history_r, 0, sizeof(move_history_r));
@@ -72,17 +76,13 @@ void reset_board(void) {
 void execute_move(int r, int c, char p) {
     int p_idx = (p == 'X') ? 0 : 1;
 
-    /* Dacă este Modul Infinit și s-a atins limita maximă de piese (egală cu dimensiunea gridului) */
     if (is_infinite && move_count[p_idx] == grid_size) {
-        // Obținem coordonatele celei mai vechi piese
         int old_r = move_history_r[p_idx][0];
         int old_c = move_history_c[p_idx][0];
         
-        // O ștergem de pe tablă
         board[old_r][old_c] = '.';
         cell_anim[old_r][old_c] = 0.0f;
 
-        // Shiftăm istoricul la stânga pentru a elibera ultimul loc
         for (int i = 0; i < move_count[p_idx] - 1; i++) {
             move_history_r[p_idx][i] = move_history_r[p_idx][i + 1];
             move_history_c[p_idx][i] = move_history_c[p_idx][i + 1];
@@ -90,11 +90,12 @@ void execute_move(int r, int c, char p) {
         move_count[p_idx]--;
     }
 
-    // Plasăm piesa nouă
     board[r][c] = p;
     cell_anim[r][c] = 0.01f;
 
-    // Salvăm piesa nouă în istoric
+    /* Declanșăm sunetul la fiecare piesă pusă */
+    PlaySound(fx_click);
+
     if (is_infinite) {
         move_history_r[p_idx][move_count[p_idx]] = r;
         move_history_c[p_idx][move_count[p_idx]] = c;
@@ -150,7 +151,20 @@ bool draw_button(Rectangle rec, const char *label, int font_size, Color hover_co
 int main(void) {
     srand(time(NULL));
     InitWindow(SCREEN_W, SCREEN_H, "Tic-Tac-Toe");
+    
+    /* --- INITIALIZARE MOTOR AUDIO --- */
+    InitAudioDevice(); 
+    
     SetTargetFPS(60);
+
+    /* --- INCARCARE SUNETE --- */
+    fx_click = LoadSound("click.wav");
+    fx_win   = LoadSound("victory.wav"); 
+    fx_lose  = LoadSound("lose.wav");
+
+    /* --- AJUSTARI AUDIO PENTRU CLICK --- */
+    SetSoundVolume(fx_click, 0.5f); // Da volumul la 50%
+    SetSoundPitch(fx_click, 1.5f);  // Face sunetul mai rapid si mai ascutit
 
     state = MENU;
     score_x = score_o = score_draw = 0;
@@ -241,6 +255,7 @@ int main(void) {
 
                         if (check_win(board, grid_size, 'O')) {
                             find_win_line_coords('O'); winner = 2; state = GAME_OVER; score_o++;
+                            PlaySound(fx_lose);
                         } else if (is_draw(board, grid_size)) {
                             winner = 3; state = GAME_OVER; score_draw++;
                         } else {
@@ -268,6 +283,7 @@ int main(void) {
                                 winner = (current == 'X') ? 1 : 2;
                                 state  = GAME_OVER;
                                 if (current == 'X') score_x++; else score_o++;
+                                PlaySound(fx_win);
                             } else if (is_draw(board, grid_size)) {
                                 winner = 3; state = GAME_OVER; score_draw++;
                             } else {
@@ -393,14 +409,12 @@ int main(void) {
 
                         Color piece_color = (board[r][c] == 'X') ? X_COL : O_COL;
 
-                        /* MECANICA SPECIALA: Daca piesa este prima din istoric, pulseaza/clipeste */
                         if (is_infinite && state == PLAYING) {
                             int p_idx = (board[r][c] == 'X') ? 0 : 1;
                             if (move_count[p_idx] == grid_size && 
                                 move_history_r[p_idx][0] == r && 
                                 move_history_c[p_idx][0] == c) {
                                 
-                                // Modificam valoarea Alpha (transparenta) cu o functie de timp sinf() pentru efect lin de fade
                                 float alpha = 0.25f + 0.45f * fabsf(sinf(GetTime() * 6.0f));
                                 piece_color.a = (unsigned char)(alpha * 255);
                             }
@@ -432,6 +446,12 @@ int main(void) {
 
         EndDrawing();
     }
+
+    /* --- CURATARE AUDIO SI FINISH --- */
+    UnloadSound(fx_click);
+    UnloadSound(fx_win);
+    UnloadSound(fx_lose);
+    CloseAudioDevice(); 
 
     CloseWindow();
     return 0;
