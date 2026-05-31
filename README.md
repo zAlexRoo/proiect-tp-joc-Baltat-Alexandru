@@ -27,45 +27,51 @@ Deschide un terminal (combinația de taste `Ctrl + Alt + T`) și rulează următ
 ```bash
 sudo apt update
 sudo apt install build-essential git -y
+```
 
 
-Pasul 2: Instalarea bibliotecii Raylib
+### Pasul 2: Instalarea bibliotecii Raylib
 Jocul are nevoie de librăriile grafice și audio pentru a funcționa. În același terminal, copiază și rulează comanda:
 
+```bash
 sudo apt install libraylib-dev -y
+```
 
-Pasul 3: Descărcarea jocului
+### Pasul 3: Descărcarea jocului
 Acum trebuie să descarci fișierele jocului pe calculatorul tău. Scrie în terminal:
 
+```bash
 git clone [https://github.com/zAlexRoo/proiect-tp-joc-Baltat-Alexandru.git](https://github.com/zAlexRoo/proiect-tp-joc-Baltat-Alexandru.git)
-
+```
 (Notă: Asigură-te că înlocuiești numele-repo-ului cu numele exact al repository-ului tău de pe GitHub).
 
-Pasul 4: Pornirea jocului
+### Pasul 4: Pornirea jocului
 Intră în folderul jocului descărcat și pornește-l folosind comenzile de compilare automată:
 
+```bash
 cd proiect-tp-joc-Baltat-Alexandru
 make rebuild
 make run
+```
 
 
 
-📂 Structura Fișierelor (Ce face fiecare fișier?)
+### 📂 Structura Fișierelor (Ce face fiecare fișier?)
 Proiectul este împărțit în module clare pentru o bună organizare a codului:
 
-🧠 main.c - „Creierul” interfeței. Gestionează ferestrele, meniurile, animațiile, sunetele și input-ul de la mouse.
+🧠 **main.c** - „Creierul” interfeței. Gestionează ferestrele, meniurile, animațiile, sunetele și input-ul de la mouse.
 
-📋 board.c / board.h - Conțin logica de bază a tablei de joc (inițializarea tablei, plasarea pieselor, verificarea victoriei pe orizontală, verticală și diagonale).
+📋 **board.c / board.h** - Conțin logica de bază a tablei de joc (inițializarea tablei, plasarea pieselor, verificarea victoriei pe orizontală, verticală și diagonale).
 
-🤖 ai.c / ai.h - Conțin logica Inteligenței Artificiale, inclusiv algoritmul Minimax și sistemul euristic pentru tablele mari (4x4 - 6x6).
+🤖 **ai.c / ai.h** - Conțin logica Inteligenței Artificiale, inclusiv algoritmul Minimax și sistemul euristic pentru tablele mari (4x4 - 6x6).
 
-⚙️ Makefile - Un script de automatizare care îi spune calculatorului cum să asambleze (compileze) toate fișierele .c de mai sus într-un singur joc funcțional, fără să scrii comenzi lungi manual.
+⚙️ **Makefile** - Un script de automatizare care îi spune calculatorului cum să asambleze (compileze) toate fișierele .c de mai sus într-un singur joc funcțional, fără să scrii comenzi lungi manual.
 
-🎵 Fișierele .wav (click.wav, victory.wav, lose.wav) - Sunetele folosite în joc.
+🎵 **Fișierele .wav** (click.wav, victory.wav, lose.wav) - Sunetele folosite în joc.
 
 
 
-🎮 Cum se joacă Modul Infinit?
+### 🎮 Cum se joacă Modul Infinit?
 Regulile sunt aceleași ca la X și O clasic (trebuie să faci o linie completă), dar cu o mică capcană:
 
 Să zicem că joci pe tabla de 3x3. Ai voie să ai maxim 3 piese pe tablă în același timp.
@@ -74,4 +80,4 @@ Ai pus 3 piese, dar nu ai câștigat încă.
 
 Când o pui pe a 4-a, prima piesă pe care ai pus-o la începutul meciului va dispărea de pe tablă!
 
-⚠️ Atenție: Fii mereu atent la piesele semi-transparente (care clipesc) – ele sunt următoarele care vor dispărea la mutarea ta! Gândește cu un pas înainte!
+### ⚠️ Atenție: Fii mereu atent la piesele semi-transparente (care clipesc) – ele sunt următoarele care vor dispărea la mutarea ta! Gândește cu un pas înainte!
